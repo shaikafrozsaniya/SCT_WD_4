@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic-Tac-Toe</title>
+<style>
+  :root {
+    --bg: #1b2330;
+    --panel: #243044;
+    --cell: #2f3d56;
+    --cell-hover: #394a69;
+    --ink: #eef2f8;
+    --muted: #9aa8c2;
+    --x: #ff7a59;
+    --o: #4fd1c5;
+    --win: #f6c945;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; display: grid; place-items: center; padding: 20px 14px;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--ink);
+  }
+  .game { width: 100%; max-width: 400px; background: var(--panel); border-radius: 18px; padding: 24px 22px 22px; box-shadow: 0 12px 34px rgba(0,0,0,.35); }
+  h1 { text-align: center; font-size: 1.5rem; margin-bottom: 16px; }
+
+  .setting { margin-bottom: 12px; }
+  .setting label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 5px; }
+  .seg { display: flex; background: var(--bg); border-radius: 10px; padding: 3px; }
+  .seg button { flex: 1; background: transparent; color: var(--muted); border: 0; padding: 8px 4px; border-radius: 8px; font-size: .9rem; font-weight: 600; cursor: pointer; transition: background-color .2s ease, color .2s ease; }
+  .seg button[aria-pressed="true"] { background: var(--cell); color: var(--ink); }
+  .seg button:focus-visible, .actions button:focus-visible, .cell:focus-visible { outline: 3px solid var(--win); outline-offset: 2px; }
+  #levelWrap[hidden] { display: none; }
+
+  .status { text-align: center; font-size: 1.1rem; font-weight: 600; margin: 16px 0 14px; min-height: 1.6em; }
+  .status .x { color: var(--x); } .status .o { color: var(--o); }
+
+  .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .cell {
+    aspect-ratio: 1; border: 0; border-radius: 12px; background: var(--cell);
+    font-size: clamp(2.6rem, 14vw, 3.8rem); font-weight: 700; line-height: 1; cursor: pointer;
+    transition: background-color .15s ease, transform .1s ease;
+  }
+  .cell:hover:not(:disabled) { background: var(--cell-hover); }
+  .cell:active:not(:disabled) { transform: scale(.95); }
+  .cell:disabled { cursor: default; }
+  .cell.X { color: var(--x); }
+  .cell.O { color: var(--o); }
+  .cell.win { background: var(--win); color: #1b2330; }
+  .cell .mark { display: inline-block; animation: pop .18s ease-out; }
+  @keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  .scores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0 14px; text-align: center; }
+  .scores div { background: var(--bg); border-radius: 10px; padding: 8px 4px; }
+  .scores b { display: block; font-size: 1.4rem; }
+  .scores span { font-size: .8rem; color: var(--muted); }
+  .scores .sx b { color: var(--x); } .scores .so b { color: var(--o); }
+
+  .actions { display: flex; gap: 10px; }
+  .actions button { flex: 1; padding: 11px; border: 0; border-radius: 10px; font-size: .95rem; font-weight: 600; cursor: pointer; background: var(--x); color: #1b2330; transition: filter .2s ease; }
+  .actions button.alt { background: var(--cell); color: var(--ink); }
+  .actions button:hover { filter: brightness(1.1); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<main class="game">
+  <h1>Tic-Tac-Toe</h1>
+
+  <div class="setting">
+    <label id="modeLabel">Game mode</label>
+    <div class="seg" role="group" aria-labelledby="modeLabel">
+      <button type="button" data-mode="cpu" aria-pressed="true">vs Computer</button>
+      <button type="button" data-mode="pvp" aria-pressed="false">2 Players</button>
+    </div>
+  </div>
+  <div class="setting" id="levelWrap">
+    <label id="levelLabel">Computer difficulty</label>
+    <div class="seg" role="group" aria-labelledby="levelLabel">
+      <button type="button" data-level="easy" aria-pressed="false">Easy</button>
+      <button type="button" data-level="medium" aria-pressed="false">Medium</button>
+      <button type="button" data-level="hard" aria-pressed="true">Hard</button>
+    </div>
+  </div>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+  <div class="board" id="board"></div>
+
+  <div class="scores">
+    <div class="sx"><b id="scoreX">0</b><span id="nameX">You (X)</span></div>
+    <div><b id="scoreD">0</b><span>Draws</span></div>
+    <div class="so"><b id="scoreO">0</b><span id="nameO">Computer (O)</span></div>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="newBtn">New game</button>
+    <button type="button" id="resetBtn" class="alt">Reset scores</button>
+  </div>
+</main>
+
+<script>
+  const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  const HUMAN = 'X', CPU = 'O';
+
+  // ---------- GAME STATE ----------
+  let board, current, over, thinking;
+  let mode = 'cpu', level = 'hard';
+  let starter = 'O';                    // flipped to 'X' on the first game, so X always opens game one
+  let scores = { X: 0, O: 0, D: 0 };
+
+  const $ = (id) => document.getElementById(id);
+  const boardEl = $('board'), statusEl = $('status');
+
+  // Build the 9 cells once
+  for (let i = 0; i < 9; i++) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'cell'; b.dataset.i = i;
+    b.setAttribute('aria-label', 'Cell ' + (i + 1) + ', empty');
+    b.addEventListener('click', () => handleClick(i));
+    boardEl.appendChild(b);
+  }
+  const cells = [...boardEl.children];
+
+  // ---------- RULES ----------
+  function getWinner(b) {
+    for (const line of LINES) {
+      const [a, c, d] = line;
+      if (b[a] && b[a] === b[c] && b[a] === b[d]) return { player: b[a], line };
+    }
+    return null;
+  }
+  const emptyCells = (b) => b.map((v, i) => v ? null : i).filter(i => i !== null);
+  const isDraw = (b) => !getWinner(b) && emptyCells(b).length === 0;
+
+  // ---------- COMPUTER AI ----------
+  function winningMoveFor(b, player) {
+    for (const i of emptyCells(b)) {
+      const t = b.slice(); t[i] = player;
+      if (getWinner(t)) return i;
+    }
+    return null;
+  }
+  function minimax(b, player, depth) {                 // score from the computer's point of view
+    const w = getWinner(b);
+    if (w) return w.player === CPU ? 10 - depth : depth - 10;
+    const free = emptyCells(b);
+    if (!free.length) return 0;
+    let best = player === CPU ? -Infinity : Infinity;
+    for (const i of free) {
+      b[i] = player;
+      const s = minimax(b, player === CPU ? HUMAN : CPU, depth + 1);
+      b[i] = '';
+      best = player === CPU ? Math.max(best, s) : Math.min(best, s);
+    }
+    return best;
+  }
+  function bestMove(b) {
+    const free = emptyCells(b);
+    if (free.length === 9) return [0, 2, 4, 6, 8][Math.floor(Math.random() * 5)];   // skip the slow empty-board search
+    let bestScore = -Infinity, moves = [];
+    for (const i of free) {
+      const t = b.slice(); t[i] = CPU;
+      const s = minimax(t, HUMAN, 1);
+      if (s > bestScore) { bestScore = s; moves = [i]; } else if (s === bestScore) moves.push(i);
+    }
+    return moves[Math.floor(Math.random() * moves.length)];
+  }
+  function chooseCpuMove() {
+    const free = emptyCells(board);
+    if (level === 'hard') return bestMove(board);
+    if (level === 'medium') {
+      const m = winningMoveFor(board, CPU) ?? winningMoveFor(board, HUMAN);   // win, else block
+      if (m !== null) return m;
+    }
+    return free[Math.floor(Math.random() * free.length)];
+  }
+
+  // ---------- FLOW ----------
+  function newGame() {
+    board = Array(9).fill('');
+    over = false; thinking = false;
+    starter = starter === 'X' ? 'O' : 'X';              // alternate who opens
+    current = starter;
+    render();
+    if (mode === 'cpu' && current === CPU) cpuTurn();
+  }
+
+  function handleClick(i) {
+    if (over || thinking || board[i]) return;
+    if (mode === 'cpu' && current !== HUMAN) return;
+    play(i);
+    if (!over && mode === 'cpu' && current === CPU) cpuTurn();
+  }
+
+  function cpuTurn() {
+    thinking = true; render();
+    setTimeout(() => {
+      if (over) return;
+      thinking = false;
+      play(chooseCpuMove());
+    }, 450);
+  }
+
+  function play(i) {
+    board[i] = current;
+    const w = getWinner(board);
+    if (w) { over = true; scores[w.player]++; render(w.line); return; }
+    if (isDraw(board)) { over = true; scores.D++; render(); return; }
+    current = current === 'X' ? 'O' : 'X';
+    render();
+  }
+
+  // ---------- DRAWING ----------
+  const who = (p) => mode === 'cpu' ? (p === HUMAN ? 'You' : 'Computer') : 'Player ' + p;
+
+  function render(winLine) {
+    cells.forEach((c, i) => {
+      const v = board[i];
+      c.className = 'cell' + (v ? ' ' + v : '') + (winLine && winLine.includes(i) ? ' win' : '');
+      c.innerHTML = v ? '<span class="mark">' + v + '</span>' : '';
+      c.disabled = over || thinking || !!v;
+      c.setAttribute('aria-label', 'Cell ' + (i + 1) + ', ' + (v || 'empty'));
+    });
+
+    const w = getWinner(board);
+    if (w) statusEl.innerHTML = '<span class="' + w.player.toLowerCase() + '">' + who(w.player) + (mode === 'cpu' && w.player === HUMAN ? ' win!' : ' wins!') + '</span>';
+    else if (over) statusEl.textContent = "It's a draw.";
+    else if (thinking) statusEl.textContent = 'Computer is thinking…';
+    else statusEl.innerHTML = '<span class="' + current.toLowerCase() + '">' + who(current) + (mode === 'cpu' && current === HUMAN ? ', your turn' : "'s turn") + '</span>';
+
+    $('scoreX').textContent = scores.X; $('scoreO').textContent = scores.O; $('scoreD').textContent = scores.D;
+    $('nameX').textContent = mode === 'cpu' ? 'You (X)' : 'Player X';
+    $('nameO').textContent = mode === 'cpu' ? 'Computer (O)' : 'Player O';
+  }
+
+  // ---------- CONTROLS ----------
+  function setPressed(attr, value) {
+    document.querySelectorAll('[data-' + attr + ']').forEach(b => b.setAttribute('aria-pressed', b.dataset[attr] === value));
+  }
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+    mode = b.dataset.mode; setPressed('mode', mode);
+    $('levelWrap').hidden = mode !== 'cpu';
+    scores = { X: 0, O: 0, D: 0 }; starter = 'O'; newGame();
+  }));
+  document.querySelectorAll('[data-level]').forEach(b => b.addEventListener('click', () => {
+    level = b.dataset.level; setPressed('level', level);
+    scores = { X: 0, O: 0, D: 0 }; starter = 'O'; newGame();
+  }));
+  $('newBtn').addEventListener('click', newGame);
+  $('resetBtn').addEventListener('click', () => { scores = { X: 0, O: 0, D: 0 }; starter = 'O'; newGame(); });
+
+  newGame();
+</script>
+</body>
+</html>
